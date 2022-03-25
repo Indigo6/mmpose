@@ -18,7 +18,7 @@ class RLELoss(nn.Module):
     Args:
         use_target_weight (bool): Option to use weighted MSE loss.
             Different joint types may have different target weights.
-        batch_average (bool): Option to average the loss by the batch_size.
+        size_average (bool): Option to average the loss by the batch_size.
         residual (bool): Option to add L1 loss and let the flow
             learn the residual error distribution.
     """
@@ -37,10 +37,10 @@ class RLELoss(nn.Module):
 
     def __init__(self,
                  use_target_weight=False,
-                 batch_average=True,
+                 size_average=True,
                  residual=True):
         super(RLELoss, self).__init__()
-        self.batch_average = batch_average
+        self.size_average = size_average
         self.use_target_weight = use_target_weight
         self.residual = residual
         self.amp = 1 / math.sqrt(2 * math.pi)
@@ -50,7 +50,7 @@ class RLELoss(nn.Module):
         self.flow = RealNVP(self.get_scale_net, self.get_trans_net, masks,
                             prior)
 
-    def forward(self, output, target, target_weight):
+    def forward(self, output, target, target_weight=None):
         """Forward function.
 
         Note:
@@ -70,6 +70,8 @@ class RLELoss(nn.Module):
 
         error = (coord - target) / sigma
         # (B, K, 2)
+        if self.flow.mask.device != output.device:
+            self.flow.to(output.device)
         log_phi = self.flow.log_prob(error.reshape(-1, 2))
         log_phi = log_phi.reshape(target.shape[0], target.shape[1], 1)
         log_sigma = torch.log(sigma).reshape(target.shape[0], target.shape[1],
@@ -85,11 +87,11 @@ class RLELoss(nn.Module):
             loss = nf_loss
 
         if self.use_target_weight:
+            assert target_weight is not None
             loss *= target_weight
 
-        if self.batch_average and target_weight.sum() > 0:
-            batch_size = len(loss)
-            loss /= batch_size
+        if self.size_average:
+            loss /= len(loss)
 
         return loss.sum()
 

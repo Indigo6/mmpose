@@ -18,11 +18,12 @@ class RealNVP(nn.Module):
         super(RealNVP, self).__init__()
 
         self.prior = prior
-        self.register_buffer('mask', mask)
+        self.mask = mask
         self.s = torch.nn.ModuleList(
             [get_scale_net() for _ in range(len(mask))])
         self.t = torch.nn.ModuleList(
             [get_trans_net() for _ in range(len(mask))])
+        self._init()
 
     def _init(self):
         for m in self.t:
@@ -33,15 +34,6 @@ class RealNVP(nn.Module):
             for mm in m.modules():
                 if isinstance(mm, nn.Linear):
                     nn.init.xavier_uniform_(mm.weight, gain=0.01)
-
-    def forward_p(self, z):
-        x = z
-        for i in range(len(self.t)):
-            x_ = x * self.mask[i]
-            s = self.s[i](x_) * (1 - self.mask[i])  # torch.exp(s): betas
-            t = self.t[i](x_) * (1 - self.mask[i])  # gammas
-            x = x_ + (1 - self.mask[i]) * (x * torch.exp(s) + t)
-        return x
 
     def backward_p(self, x):
         log_det_jacob, z = x.new_zeros(x.shape[0]), x
@@ -54,24 +46,22 @@ class RealNVP(nn.Module):
         return z, log_det_jacob
 
     def log_prob(self, x):
-        DEVICE = x.device
-        if self.prior.loc.device != DEVICE:
-            self.prior.loc = self.prior.loc.to(DEVICE)
-            self.prior.scale_tril = self.prior.scale_tril.to(DEVICE)
-            self.prior._unbroadcasted_scale_tril = \
-                self.prior._unbroadcasted_scale_tril.to(DEVICE)
-            self.prior.covariance_matrix = \
-                self.prior.covariance_matrix.to(DEVICE)
-            self.prior.precision_matrix = \
-                self.prior.precision_matrix.to(DEVICE)
-
         z, log_det = self.backward_p(x)
         return self.prior.log_prob(z) + log_det
 
-    def sample(self, batch_size):
-        z = self.prior.sample((batch_size, 1))
-        x = self.forward_p(z)
-        return x
-
-    def forward(self, x):
-        return self.log_prob(x)
+    def to(self, device):
+        if self.prior.loc.device != device:
+            self.prior.loc = self.prior.loc.to(device)
+            self.prior.scale_tril = self.prior.scale_tril.to(device)
+            self.prior._unbroadcasted_scale_tril = \
+                self.prior._unbroadcasted_scale_tril.to(device)
+            self.prior.covariance_matrix = \
+                self.prior.covariance_matrix.to(device)
+            self.prior.precision_matrix = \
+                self.prior.precision_matrix.to(device)
+        if self.mask.device != device:
+            self.mask = self.mask.to(device)
+        if self.s[0][0].bias.device != device:
+            for i in range(len(self.t)):
+                self.s[i] = self.s[i].to(device)
+                self.t[i] = self.t[i].to(device)
