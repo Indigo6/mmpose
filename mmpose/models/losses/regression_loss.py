@@ -4,8 +4,73 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import distributions
 
 from ..builder import LOSSES
+from ..utils.realnvp import RealNVP
+
+
+@LOSSES.register_module
+class RLELoss(nn.Module):
+    """
+        RLE Regression Loss
+        default Q(\bar{x}) is Laplace distribution
+    """
+    @staticmethod
+    def nets():
+        return nn.Sequential(nn.Linear(2, 64), nn.LeakyReLU(), nn.Linear(64, 64), nn.LeakyReLU(), nn.Linear(64, 2),
+                             nn.Tanh())
+
+    @staticmethod
+    def nett():
+        return nn.Sequential(nn.Linear(2, 64), nn.LeakyReLU(), nn.Linear(64, 64), nn.LeakyReLU(), nn.Linear(64, 2))
+
+    def __init__(self, use_target_weight=False, size_average=True, residual=True):
+        super(RLELoss, self).__init__()
+        self.size_average = size_average
+        self.use_target_weight = use_target_weight
+        self.residual = residual
+        self.amp = 1 / math.sqrt(2 * math.pi)
+
+        prior = distributions.MultivariateNormal(torch.zeros(2), torch.eye(2))
+        masks = torch.tensor([[0, 1], [1, 0]] * 3, dtype=torch.float32)
+        self.flow = RealNVP(self.nets, self.nett, masks, prior)
+
+    def forward(self, output, target, target_weight):
+        sigma = output[:, :, 2:].sigmoid()
+        output = output[:, :, :2]
+
+        bar_mu = (output - target) / sigma
+        # (B, K, 2)
+        log_phi = self.flow.log_prob(bar_mu.reshape(-1, 2))
+        log_phi = log_phi.reshape(target.shape[0], target.shape[1], 1)
+        log_sigma = torch.log(sigma).reshape(target.shape[0], target.shape[1], 2)
+        nf_loss = log_sigma - log_phi
+
+        # gt_uv = target.reshape(output.shape)
+        if self.use_target_weight:
+            nf_loss = nf_loss * target_weight
+            log_sigma = log_sigma * target_weight[:, :, :1]
+
+        if self.residual:
+            Q_logprob = torch.log(sigma / self.amp) + torch.abs(target - output) / (math.sqrt(2) * sigma + 1e-9)
+            if self.use_target_weight:
+                Q_logprob = Q_logprob * target_weight
+            loss = nf_loss + Q_logprob
+        else:
+            Q_logprob = 0
+            loss = nf_loss
+        batch_size = len(loss)
+
+        log_sigma = log_sigma.sum()
+        Q_logprob = Q_logprob.sum()
+        loss = loss.sum()
+        if self.size_average and target_weight.sum() > 0:
+            log_sigma /= batch_size
+            Q_logprob /= batch_size
+            loss /= batch_size
+
+        return loss.sum()
 
 
 @LOSSES.register_module()
