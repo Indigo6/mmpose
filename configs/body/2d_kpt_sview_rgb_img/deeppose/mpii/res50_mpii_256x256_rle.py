@@ -2,7 +2,7 @@ _base_ = [
     '../../../../_base_/default_runtime.py',
     '../../../../_base_/datasets/mpii.py'
 ]
-evaluation = dict(interval=1, metric='PCKh', save_best='PCKh')
+evaluation = dict(interval=10, metric='PCKh', save_best='PCKh')
 
 optimizer = dict(
     type='Adam',
@@ -38,8 +38,11 @@ model = dict(
         type='DeepposeRegressionHead',
         in_channels=2048,
         num_joints=channel_cfg['num_output_channels'],
-        loss_keypoint=dict(type='RLELoss', use_target_weight=True,
-                           size_average=True, residual=True),
+        loss_keypoint=dict(
+            type='RLELoss',
+            use_target_weight=True,
+            batch_average=True,
+            residual=True),
         out_sigma=True),
     train_cfg=dict(),
     test_cfg=dict(flip_test=True))
