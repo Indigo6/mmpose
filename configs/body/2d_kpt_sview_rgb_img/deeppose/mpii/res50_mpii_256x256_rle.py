@@ -38,8 +38,9 @@ model = dict(
         type='DeepposeRegressionHead',
         in_channels=2048,
         num_joints=channel_cfg['num_output_channels'],
-        loss_keypoint=dict(type='RLELoss', use_target_weight=True, size_average=True),
-        if_sigma=True),
+        loss_keypoint=dict(type='RLELoss', use_target_weight=True,
+                           size_average=True, residual=True),
+        out_sigma=True),
     train_cfg=dict(),
     test_cfg=dict(flip_test=True))
 
