@@ -13,61 +13,82 @@ from ..utils.realnvp import RealNVP
 @LOSSES.register_module
 class RLELoss(nn.Module):
     """
-        RLE Regression Loss
-        default Q(\bar{x}) is Laplace distribution
+    RLELoss: "Human Pose Regression With Residual Log-Likelihood Estimation".
+
+    Args:
+        use_target_weight (bool): Option to use weighted MSE loss.
+            Different joint types may have different target weights.
+        batch_average (bool): Option to average the loss by the batch_size.
+        residual (bool): Option to add L1 loss and let the flow
+            learn the residual error distribution.
     """
-    @staticmethod
-    def nets():
-        return nn.Sequential(nn.Linear(2, 64), nn.LeakyReLU(), nn.Linear(64, 64), nn.LeakyReLU(), nn.Linear(64, 2),
-                             nn.Tanh())
 
     @staticmethod
-    def nett():
-        return nn.Sequential(nn.Linear(2, 64), nn.LeakyReLU(), nn.Linear(64, 64), nn.LeakyReLU(), nn.Linear(64, 2))
+    def get_scale_net():
+        return nn.Sequential(
+            nn.Linear(2, 64), nn.LeakyReLU(), nn.Linear(64, 64),
+            nn.LeakyReLU(), nn.Linear(64, 2), nn.Tanh())
 
-    def __init__(self, use_target_weight=False, size_average=True, residual=True):
+    @staticmethod
+    def get_trans_net():
+        return nn.Sequential(
+            nn.Linear(2, 64), nn.LeakyReLU(), nn.Linear(64, 64),
+            nn.LeakyReLU(), nn.Linear(64, 2))
+
+    def __init__(self,
+                 use_target_weight=False,
+                 batch_average=True,
+                 residual=True):
         super(RLELoss, self).__init__()
-        self.size_average = size_average
+        self.batch_average = batch_average
         self.use_target_weight = use_target_weight
         self.residual = residual
         self.amp = 1 / math.sqrt(2 * math.pi)
 
         prior = distributions.MultivariateNormal(torch.zeros(2), torch.eye(2))
         masks = torch.tensor([[0, 1], [1, 0]] * 3, dtype=torch.float32)
-        self.flow = RealNVP(self.nets, self.nett, masks, prior)
+        self.flow = RealNVP(self.get_scale_net, self.get_trans_net, masks,
+                            prior)
 
     def forward(self, output, target, target_weight):
-        sigma = output[:, :, 2:].sigmoid()
-        output = output[:, :, :2]
+        """Forward function.
 
-        bar_mu = (output - target) / sigma
+        Note:
+            - batch_size: N
+            - num_keypoints: K
+            - dimension of keypoints: D (D=2 or D=3)
+
+        Args:
+            output (torch.Tensor[N, K, D*2]): Output regression,
+                    including coords and sigmas.
+            target (torch.Tensor[N, K, D]): Target regression.
+            target_weight (torch.Tensor[N, K, D]):
+                Weights across different joint types.
+        """
+        sigma = output[:, :, 2:].sigmoid()
+        coord = output[:, :, :2]
+
+        error = (coord - target) / sigma
         # (B, K, 2)
-        log_phi = self.flow.log_prob(bar_mu.reshape(-1, 2))
+        log_phi = self.flow.log_prob(error.reshape(-1, 2))
         log_phi = log_phi.reshape(target.shape[0], target.shape[1], 1)
-        log_sigma = torch.log(sigma).reshape(target.shape[0], target.shape[1], 2)
+        log_sigma = torch.log(sigma).reshape(target.shape[0], target.shape[1],
+                                             2)
         nf_loss = log_sigma - log_phi
 
-        # gt_uv = target.reshape(output.shape)
-        if self.use_target_weight:
-            nf_loss = nf_loss * target_weight
-            log_sigma = log_sigma * target_weight[:, :, :1]
-
         if self.residual:
-            Q_logprob = torch.log(sigma / self.amp) + torch.abs(target - output) / (math.sqrt(2) * sigma + 1e-9)
-            if self.use_target_weight:
-                Q_logprob = Q_logprob * target_weight
-            loss = nf_loss + Q_logprob
+            loss_sigma = torch.log(sigma / self.amp)
+            loss_l1 = torch.abs(target - coord)
+            loss_l1 /= (math.sqrt(2) * sigma + 1e-9)
+            loss = nf_loss + loss_l1 + loss_sigma
         else:
-            Q_logprob = 0
             loss = nf_loss
-        batch_size = len(loss)
 
-        log_sigma = log_sigma.sum()
-        Q_logprob = Q_logprob.sum()
-        loss = loss.sum()
-        if self.size_average and target_weight.sum() > 0:
-            log_sigma /= batch_size
-            Q_logprob /= batch_size
+        if self.use_target_weight:
+            loss *= target_weight
+
+        if self.batch_average and target_weight.sum() > 0:
+            batch_size = len(loss)
             loss /= batch_size
 
         return loss.sum()
