@@ -48,20 +48,3 @@ class RealNVP(nn.Module):
     def log_prob(self, x):
         z, log_det = self.backward_p(x)
         return self.prior.log_prob(z) + log_det
-
-    def to(self, device):
-        if self.prior.loc.device != device:
-            self.prior.loc = self.prior.loc.to(device)
-            self.prior.scale_tril = self.prior.scale_tril.to(device)
-            self.prior._unbroadcasted_scale_tril = \
-                self.prior._unbroadcasted_scale_tril.to(device)
-            self.prior.covariance_matrix = \
-                self.prior.covariance_matrix.to(device)
-            self.prior.precision_matrix = \
-                self.prior.precision_matrix.to(device)
-        if self.mask.device != device:
-            self.mask = self.mask.to(device)
-        if self.s[0][0].bias.device != device:
-            for i in range(len(self.t)):
-                self.s[i] = self.s[i].to(device)
-                self.t[i] = self.t[i].to(device)

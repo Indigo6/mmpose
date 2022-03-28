@@ -50,6 +50,19 @@ class RLELoss(nn.Module):
         self.flow = RealNVP(self.get_scale_net, self.get_trans_net, masks,
                             prior)
 
+    def _apply(self, fn):
+        self.flow.prior.loc = fn(self.flow.prior.loc)
+        self.flow.prior.scale_tril = fn(self.flow.prior.scale_tril)
+        self.flow.prior._unbroadcasted_scale_tril =\
+            fn(self.flow.prior._unbroadcasted_scale_tril)
+        self.flow.prior.covariance_matrix = \
+            fn(self.flow.prior.covariance_matrix)
+        self.flow.prior.precision_matrix = \
+            fn(self.flow.prior.precision_matrix)
+        self.flow.mask = fn(self.flow.mask)
+        self.flow.s._apply(fn)
+        self.flow.t._apply(fn)
+
     def forward(self, output, target, target_weight=None):
         """Forward function.
 
@@ -70,8 +83,6 @@ class RLELoss(nn.Module):
 
         error = (coord - target) / sigma
         # (B, K, 2)
-        if self.flow.mask.device != output.device:
-            self.flow.to(output.device)
         log_phi = self.flow.log_prob(error.reshape(-1, 2))
         log_phi = log_phi.reshape(target.shape[0], target.shape[1], 1)
         log_sigma = torch.log(sigma).reshape(target.shape[0], target.shape[1],
