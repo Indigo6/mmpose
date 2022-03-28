@@ -13,14 +13,6 @@ def test_rle_loss():
     fake_label = torch.zeros((1, 3, 2))
     loss(fake_pred, fake_label)
 
-    # test RLELoss without inputs on gpu
-    loss_cfg = dict(type='RLELoss')
-    loss = build_loss(loss_cfg)
-
-    fake_pred = torch.zeros((1, 3, 4)).cuda()
-    fake_label = torch.zeros((1, 3, 2)).cuda()
-    loss(fake_pred, fake_label)
-
     # test RLELoss with size_average(default True) changed to False
     loss_cfg = dict(type='RLELoss', size_average=False)
     loss = build_loss(loss_cfg)
