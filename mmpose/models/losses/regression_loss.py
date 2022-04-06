@@ -21,6 +21,8 @@ class RLELoss(nn.Module):
         size_average (bool): Option to average the loss by the batch_size.
         residual (bool): Option to add L1 loss and let the flow
             learn the residual error distribution.
+        q_dis (string): Option for the identity Q(error) distribution,
+            Options: "Laplace" or "Gaussian"
     """
 
     @staticmethod
@@ -38,12 +40,13 @@ class RLELoss(nn.Module):
     def __init__(self,
                  use_target_weight=False,
                  size_average=True,
-                 residual=True):
+                 residual=True,
+                 q_dis='Laplace'):
         super(RLELoss, self).__init__()
         self.size_average = size_average
         self.use_target_weight = use_target_weight
         self.residual = residual
-        self.amp = 1 / math.sqrt(2 * math.pi)
+        self.q_dis = q_dis
 
         prior = distributions.MultivariateNormal(torch.zeros(2), torch.eye(2))
         masks = torch.tensor([[0, 1], [1, 0]] * 3, dtype=torch.float32)
@@ -90,10 +93,12 @@ class RLELoss(nn.Module):
         nf_loss = log_sigma - log_phi
 
         if self.residual:
-            loss_sigma = torch.log(sigma / self.amp)
-            loss_l1 = torch.abs(target - coord)
-            loss_l1 /= (math.sqrt(2) * sigma + 1e-9)
-            loss = nf_loss + loss_l1 + loss_sigma
+            assert self.q_dis in ['Laplace', 'Gaussian']
+            if self.q_dis == 'Laplace':
+                loss_q = torch.abs(error)
+            else:
+                loss_q = error**2
+            loss = nf_loss + loss_q
         else:
             loss = nf_loss
 
