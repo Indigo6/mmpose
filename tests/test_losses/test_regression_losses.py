@@ -13,6 +13,14 @@ def test_rle_loss():
     fake_label = torch.zeros((1, 3, 2))
     loss(fake_pred, fake_label)
 
+    # test RLELoss with Q(error) changed to "Gaussian"(default "Laplace")
+    loss_cfg = dict(type='RLELoss', q_dis='Gaussian')
+    loss = build_loss(loss_cfg)
+
+    fake_pred = torch.zeros((1, 3, 4))
+    fake_label = torch.zeros((1, 3, 2))
+    loss(fake_pred, fake_label)
+
     # test RLELoss._apply(fn)
     loss_cfg = dict(type='RLELoss', size_average=False)
     loss = build_loss(loss_cfg)
@@ -38,7 +46,7 @@ def test_rle_loss():
     fake_label = torch.zeros((1, 3, 2))
     loss(fake_pred, fake_label)
 
-    # test SmoothL1Loss with target weight
+    # test RLELoss with target weight
     loss_cfg = dict(type='RLELoss', use_target_weight=True)
     loss = build_loss(loss_cfg)
 
