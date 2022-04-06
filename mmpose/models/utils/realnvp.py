@@ -1,31 +1,40 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import torch
 import torch.nn as nn
+from torch import distributions
 
 
 class RealNVP(nn.Module):
     """
         RealNVP: flow-based generative model
                  "Density estimation using Real NVP"
-        Args:
-            get_scale_net (function): return layers to build scale net
-            get_trans_net (function): return layers to build transition net
-            mask (torch.Tensor): binary mask for decoupling
-            prior (torch.Distribution): π(z)
     """
 
-    def __init__(self, get_scale_net, get_trans_net, mask, prior):
+    @staticmethod
+    def get_scale_net():
+        return nn.Sequential(
+            nn.Linear(2, 64), nn.LeakyReLU(), nn.Linear(64, 64),
+            nn.LeakyReLU(), nn.Linear(64, 2), nn.Tanh())
+
+    @staticmethod
+    def get_trans_net():
+        return nn.Sequential(
+            nn.Linear(2, 64), nn.LeakyReLU(), nn.Linear(64, 64),
+            nn.LeakyReLU(), nn.Linear(64, 2))
+
+    def __init__(self):
         super(RealNVP, self).__init__()
 
-        self.prior = prior
-        self.mask = mask
+        self.prior = distributions.MultivariateNormal(
+            torch.zeros(2), torch.eye(2))
+        self.mask = torch.tensor([[0, 1], [1, 0]] * 3, dtype=torch.float32)
         self.s = torch.nn.ModuleList(
-            [get_scale_net() for _ in range(len(mask))])
+            [self.get_scale_net() for _ in range(len(self.mask))])
         self.t = torch.nn.ModuleList(
-            [get_trans_net() for _ in range(len(mask))])
-        self._init()
+            [self.get_trans_net() for _ in range(len(self.mask))])
+        self.init_weights()
 
-    def _init(self):
+    def init_weights(self):
         for m in self.t:
             for mm in m.modules():
                 if isinstance(mm, nn.Linear):

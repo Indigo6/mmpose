@@ -4,7 +4,6 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import distributions
 
 from ..builder import LOSSES
 from ..utils.realnvp import RealNVP
@@ -25,18 +24,6 @@ class RLELoss(nn.Module):
             Options: "Laplace" or "Gaussian"
     """
 
-    @staticmethod
-    def get_scale_net():
-        return nn.Sequential(
-            nn.Linear(2, 64), nn.LeakyReLU(), nn.Linear(64, 64),
-            nn.LeakyReLU(), nn.Linear(64, 2), nn.Tanh())
-
-    @staticmethod
-    def get_trans_net():
-        return nn.Sequential(
-            nn.Linear(2, 64), nn.LeakyReLU(), nn.Linear(64, 64),
-            nn.LeakyReLU(), nn.Linear(64, 2))
-
     def __init__(self,
                  use_target_weight=False,
                  size_average=True,
@@ -48,10 +35,7 @@ class RLELoss(nn.Module):
         self.residual = residual
         self.q_dis = q_dis
 
-        prior = distributions.MultivariateNormal(torch.zeros(2), torch.eye(2))
-        masks = torch.tensor([[0, 1], [1, 0]] * 3, dtype=torch.float32)
-        self.flow = RealNVP(self.get_scale_net, self.get_trans_net, masks,
-                            prior)
+        self.flow = RealNVP()
 
     def _apply(self, fn):
         self.flow.prior.loc = fn(self.flow.prior.loc)
